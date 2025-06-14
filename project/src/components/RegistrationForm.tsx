@@ -2,18 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { User, Ubicacion, RegistrationFormData } from '../types';
 import { 
   fetchCountries, 
-  fetchRegions, 
+  fetchDepartments,
+  fetchCities,
+  fetchAreas,
   validateEmail, 
   registerUser, 
   sendEmailNotification,
-  getCountryPhoneCode 
+  getCountryPhoneCode,
+  getDepartmentLabel,
+  getFullLocationPath,
+  getLocationTypeDescription
 } from '../services/api';
 import { generateRegistrationPDF, downloadPDF } from '../utils/pdfGenerator';
-import { Check, AlertCircle, Loader2, Download, Mail, FileText } from 'lucide-react';
+import { Check, AlertCircle, Loader2, Download, Mail, FileText, MapPin } from 'lucide-react';
 
 const RegistrationForm: React.FC = () => {
   const [countries, setCountries] = useState<Ubicacion[]>([]);
-  const [regions, setRegions] = useState<Ubicacion[]>([]);
+  const [departments, setDepartments] = useState<Ubicacion[]>([]);
+  const [cities, setCities] = useState<Ubicacion[]>([]);
+  const [areas, setAreas] = useState<Ubicacion[]>([]);
+  
   const [formData, setFormData] = useState<RegistrationFormData>({
     nombre: '',
     apellido: '',
@@ -24,6 +32,10 @@ const RegistrationForm: React.FC = () => {
   });
   
   const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('');
+  const [selectedCity, setSelectedCity] = useState<string>('');
+  const [selectedArea, setSelectedArea] = useState<string>('');
+  
   const [isEmailValidated, setIsEmailValidated] = useState(false);
   const [isEmailValidating, setIsEmailValidating] = useState(false);
   const [emailValidationMessage, setEmailValidationMessage] = useState('');
@@ -62,22 +74,75 @@ const RegistrationForm: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const loadRegions = async () => {
+    const loadDepartments = async () => {
       if (selectedCountry) {
         try {
-          const data = await fetchRegions(selectedCountry);
-          setRegions(data);
+          const data = await fetchDepartments(selectedCountry);
+          setDepartments(data);
+          setSelectedDepartment('');
+          setCities([]);
+          setAreas([]);
+          setSelectedCity('');
+          setSelectedArea('');
           setFormData(prev => ({ ...prev, codUbica: '' }));
         } catch (error) {
-          console.error('Failed to fetch regions:', error);
+          console.error('Failed to fetch departments:', error);
         }
       } else {
-        setRegions([]);
+        setDepartments([]);
+        setCities([]);
+        setAreas([]);
       }
     };
 
-    loadRegions();
+    loadDepartments();
   }, [selectedCountry]);
+
+  useEffect(() => {
+    const loadCities = async () => {
+      if (selectedDepartment) {
+        try {
+          const data = await fetchCities(selectedDepartment);
+          setCities(data);
+          setSelectedCity('');
+          setAreas([]);
+          setSelectedArea('');
+          setFormData(prev => ({ ...prev, codUbica: '' }));
+        } catch (error) {
+          console.error('Failed to fetch cities:', error);
+        }
+      } else {
+        setCities([]);
+        setAreas([]);
+      }
+    };
+
+    loadCities();
+  }, [selectedDepartment]);
+
+  useEffect(() => {
+    const loadAreas = async () => {
+      if (selectedCity) {
+        try {
+          const data = await fetchAreas(selectedCity);
+          setAreas(data);
+          setSelectedArea('');
+          // If no areas available, use city as final location
+          if (data.length === 0) {
+            setFormData(prev => ({ ...prev, codUbica: selectedCity }));
+          } else {
+            setFormData(prev => ({ ...prev, codUbica: '' }));
+          }
+        } catch (error) {
+          console.error('Failed to fetch areas:', error);
+        }
+      } else {
+        setAreas([]);
+      }
+    };
+
+    loadAreas();
+  }, [selectedCity]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -89,13 +154,19 @@ const RegistrationForm: React.FC = () => {
     
     if (name === 'selectedCountry') {
       setSelectedCountry(value);
-      // Update phone number prefix
       const phoneCode = getCountryPhoneCode(value);
       setFormData(prev => ({ 
         ...prev, 
         celular: phoneCode,
         codUbica: ''
       }));
+    } else if (name === 'selectedDepartment') {
+      setSelectedDepartment(value);
+    } else if (name === 'selectedCity') {
+      setSelectedCity(value);
+    } else if (name === 'selectedArea') {
+      setSelectedArea(value);
+      setFormData(prev => ({ ...prev, codUbica: value }));
     } else {
       setFormData((prev) => ({
         ...prev,
@@ -152,7 +223,7 @@ const RegistrationForm: React.FC = () => {
       genero: formData.genero ? '' : 'Gender is required',
       email: formData.email ? '' : 'Email is required',
       celular: formData.celular ? '' : 'Phone number is required',
-      codUbica: formData.codUbica ? '' : 'Please select a region'
+      codUbica: formData.codUbica ? '' : 'Please complete location selection'
     };
     
     setErrors(newErrors);
@@ -175,10 +246,7 @@ const RegistrationForm: React.FC = () => {
       const result = await registerUser(formData);
       
       if (result.success && result.user) {
-        // Generate PDF
         const pdfUrl = await generateRegistrationPDF(result.user);
-        
-        // Send email notification
         await sendEmailNotification(result.user.email, `${result.user.nombre} ${result.user.apellido}`);
         
         setRegistrationStatus({
@@ -199,6 +267,9 @@ const RegistrationForm: React.FC = () => {
           codUbica: ''
         });
         setSelectedCountry('');
+        setSelectedDepartment('');
+        setSelectedCity('');
+        setSelectedArea('');
         setIsEmailValidated(false);
         setEmailValidationMessage('');
       } else {
@@ -234,228 +305,316 @@ const RegistrationForm: React.FC = () => {
   }
 
   const selectedCountryData = countries.find(country => country.codUbica === selectedCountry);
+  const departmentLabel = selectedCountry ? getDepartmentLabel(selectedCountry) : 'Región';
 
   return (
-    <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-md overflow-hidden transition-all">
+    <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden transition-all">
       <div className="bg-gradient-to-r from-blue-600 to-blue-800 px-6 py-4 text-white">
         <h2 className="text-xl font-semibold">User Registration</h2>
-        <p className="text-blue-100 text-sm">Create your account with complete information</p>
+        <p className="text-blue-100 text-sm">Create your account with complete location information</p>
       </div>
       
       <form onSubmit={handleSubmit} className="px-6 py-6 space-y-6">
-        {/* Personal Information */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* First Name */}
-          <div>
-            <label htmlFor="nombre" className="block text-sm font-medium text-gray-700 mb-1">
-              First Name
-            </label>
-            <input
-              type="text"
-              id="nombre"
-              name="nombre"
-              value={formData.nombre}
-              onChange={handleInputChange}
-              className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                errors.nombre ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="Enter your first name"
-            />
-            {errors.nombre && (
-              <p className="mt-1 text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.nombre}
-              </p>
-            )}
-          </div>
-
-          {/* Last Name */}
-          <div>
-            <label htmlFor="apellido" className="block text-sm font-medium text-gray-700 mb-1">
-              Last Name
-            </label>
-            <input
-              type="text"
-              id="apellido"
-              name="apellido"
-              value={formData.apellido}
-              onChange={handleInputChange}
-              className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                errors.apellido ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="Enter your last name"
-            />
-            {errors.apellido && (
-              <p className="mt-1 text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.apellido}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Gender */}
-        <div>
-          <label htmlFor="genero" className="block text-sm font-medium text-gray-700 mb-1">
-            Gender
-          </label>
-          <select
-            id="genero"
-            name="genero"
-            value={formData.genero}
-            onChange={handleInputChange}
-            className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-              errors.genero ? 'border-red-500' : 'border-gray-300'
-            }`}
-          >
-            <option value="">Select your gender</option>
-            <option value="M">Male</option>
-            <option value="F">Female</option>
-            <option value="O">Other</option>
-          </select>
-          {errors.genero && (
-            <p className="mt-1 text-sm text-red-600 flex items-center">
-              <AlertCircle className="h-4 w-4 mr-1" />
-              {errors.genero}
-            </p>
-          )}
-        </div>
-        
-        {/* Country Selection */}
-        <div>
-          <label htmlFor="selectedCountry" className="block text-sm font-medium text-gray-700 mb-1">
-            Country
-          </label>
-          <select
-            id="selectedCountry"
-            name="selectedCountry"
-            value={selectedCountry}
-            onChange={handleInputChange}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-          >
-            <option value="">Select your country</option>
-            {countries.map((country) => (
-              <option key={country.codUbica} value={country.codUbica}>
-                {country.nomUbica} ({getCountryPhoneCode(country.codUbica)})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Region Selection */}
-        {selectedCountry && (
-          <div>
-            <label htmlFor="codUbica" className="block text-sm font-medium text-gray-700 mb-1">
-              {selectedCountryData?.nomUbica === 'E.U' ? 'State' : 'Region'}
-            </label>
-            <select
-              id="codUbica"
-              name="codUbica"
-              value={formData.codUbica}
-              onChange={handleInputChange}
-              className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                errors.codUbica ? 'border-red-500' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Select your {selectedCountryData?.nomUbica === 'E.U' ? 'state' : 'region'}</option>
-              {regions.map((region) => (
-                <option key={region.codUbica} value={region.codUbica}>
-                  {region.nomUbica}
-                </option>
-              ))}
-            </select>
-            {errors.codUbica && (
-              <p className="mt-1 text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.codUbica}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Phone Number */}
-        <div>
-          <label htmlFor="celular" className="block text-sm font-medium text-gray-700 mb-1">
-            Phone Number
-          </label>
-          <input
-            type="tel"
-            id="celular"
-            name="celular"
-            value={formData.celular}
-            onChange={handleInputChange}
-            className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-              errors.celular ? 'border-red-500' : 'border-gray-300'
-            }`}
-            placeholder="Enter your phone number"
-          />
-          {errors.celular && (
-            <p className="mt-1 text-sm text-red-600 flex items-center">
-              <AlertCircle className="h-4 w-4 mr-1" />
-              {errors.celular}
-            </p>
-          )}
-        </div>
-        
-        {/* Email Field with Validation */}
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-            Email Address
-          </label>
-          <div className="flex space-x-2">
-            <div className="flex-grow">
+        {/* Personal Information Section */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+            <div className="bg-blue-100 p-2 rounded-full mr-3">
+              <FileText className="h-5 w-5 text-blue-600" />
+            </div>
+            Personal Information
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* First Name */}
+            <div>
+              <label htmlFor="nombre" className="block text-sm font-medium text-gray-700 mb-1">
+                First Name
+              </label>
               <input
-                type="email"
-                id="email"
-                name="email"
-                value={formData.email}
+                type="text"
+                id="nombre"
+                name="nombre"
+                value={formData.nombre}
                 onChange={handleInputChange}
                 className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                  errors.email ? 'border-red-500' : isEmailValidated ? 'border-green-500' : 'border-gray-300'
+                  errors.nombre ? 'border-red-500' : 'border-gray-300'
                 }`}
-                placeholder="Enter your email"
-                disabled={isEmailValidated}
+                placeholder="Enter your first name"
               />
+              {errors.nombre && (
+                <p className="mt-1 text-sm text-red-600 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.nombre}
+                </p>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={handleValidateEmail}
-              disabled={isEmailValidating || isEmailValidated}
-              className={`px-4 py-2 rounded-md text-white font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isEmailValidated
-                  ? 'bg-green-500 hover:bg-green-600'
-                  : 'bg-blue-500 hover:bg-blue-600'
+
+            {/* Last Name */}
+            <div>
+              <label htmlFor="apellido" className="block text-sm font-medium text-gray-700 mb-1">
+                Last Name
+              </label>
+              <input
+                type="text"
+                id="apellido"
+                name="apellido"
+                value={formData.apellido}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                  errors.apellido ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Enter your last name"
+              />
+              {errors.apellido && (
+                <p className="mt-1 text-sm text-red-600 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.apellido}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Gender */}
+          <div className="mt-4">
+            <label htmlFor="genero" className="block text-sm font-medium text-gray-700 mb-1">
+              Gender
+            </label>
+            <select
+              id="genero"
+              name="genero"
+              value={formData.genero}
+              onChange={handleInputChange}
+              className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                errors.genero ? 'border-red-500' : 'border-gray-300'
               }`}
             >
-              {isEmailValidating ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : isEmailValidated ? (
-                <Check className="h-5 w-5" />
-              ) : (
-                'Validate'
-              )}
-            </button>
+              <option value="">Select your gender</option>
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+              <option value="O">Other</option>
+            </select>
+            {errors.genero && (
+              <p className="mt-1 text-sm text-red-600 flex items-center">
+                <AlertCircle className="h-4 w-4 mr-1" />
+                {errors.genero}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Location Information Section */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+            <div className="bg-green-100 p-2 rounded-full mr-3">
+              <MapPin className="h-5 w-5 text-green-600" />
+            </div>
+            Location Information
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Country Selection - País */}
+            <div>
+              <label htmlFor="selectedCountry" className="block text-sm font-medium text-gray-700 mb-1">
+                País (Country)
+              </label>
+              <select
+                id="selectedCountry"
+                name="selectedCountry"
+                value={selectedCountry}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+              >
+                <option value="">Select your country</option>
+                {countries.map((country) => (
+                  <option key={country.codUbica} value={country.codUbica}>
+                    {country.nomUbica} ({getCountryPhoneCode(country.codUbica)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Department/Province Selection - Departamento/Provincia */}
+            {selectedCountry && (
+              <div>
+                <label htmlFor="selectedDepartment" className="block text-sm font-medium text-gray-700 mb-1">
+                  {departmentLabel}
+                </label>
+                <select
+                  id="selectedDepartment"
+                  name="selectedDepartment"
+                  value={selectedDepartment}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                >
+                  <option value="">Select your {departmentLabel.toLowerCase()}</option>
+                  {departments.map((department) => (
+                    <option key={department.codUbica} value={department.codUbica}>
+                      {department.nomUbica}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* City Selection - Ciudad */}
+            {selectedDepartment && (
+              <div>
+                <label htmlFor="selectedCity" className="block text-sm font-medium text-gray-700 mb-1">
+                  Ciudad (City)
+                </label>
+                <select
+                  id="selectedCity"
+                  name="selectedCity"
+                  value={selectedCity}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                >
+                  <option value="">Select your city</option>
+                  {cities.map((city) => (
+                    <option key={city.codUbica} value={city.codUbica}>
+                      {city.nomUbica}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Area Selection - Area */}
+            {selectedCity && areas.length > 0 && (
+              <div>
+                <label htmlFor="selectedArea" className="block text-sm font-medium text-gray-700 mb-1">
+                  Area (Area/Neighborhood)
+                </label>
+                <select
+                  id="selectedArea"
+                  name="selectedArea"
+                  value={selectedArea}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                    errors.codUbica ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                >
+                  <option value="">Select your area</option>
+                  {areas.map((area) => (
+                    <option key={area.codUbica} value={area.codUbica}>
+                      {area.nomUbica}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Location Preview */}
+          {formData.codUbica && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-md">
+              <p className="text-sm text-blue-800">
+                <strong>Selected Location:</strong> {getFullLocationPath(formData.codUbica)}
+              </p>
+            </div>
+          )}
+
+          {errors.codUbica && (
+            <p className="mt-2 text-sm text-red-600 flex items-center">
+              <AlertCircle className="h-4 w-4 mr-1" />
+              {errors.codUbica}
+            </p>
+          )}
+        </div>
+
+        {/* Contact Information Section */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+            <div className="bg-purple-100 p-2 rounded-full mr-3">
+              <Mail className="h-5 w-5 text-purple-600" />
+            </div>
+            Contact Information
+          </h3>
+
+          {/* Phone Number */}
+          <div className="mb-4">
+            <label htmlFor="celular" className="block text-sm font-medium text-gray-700 mb-1">
+              Phone Number
+            </label>
+            <input
+              type="tel"
+              id="celular"
+              name="celular"
+              value={formData.celular}
+              onChange={handleInputChange}
+              className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                errors.celular ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="Enter your phone number"
+            />
+            {errors.celular && (
+              <p className="mt-1 text-sm text-red-600 flex items-center">
+                <AlertCircle className="h-4 w-4 mr-1" />
+                {errors.celular}
+              </p>
+            )}
           </div>
           
-          {emailValidationMessage && (
-            <p className={`mt-1 text-sm flex items-center ${
-              isEmailValidated ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {isEmailValidated ? (
-                <Check className="h-4 w-4 mr-1" />
-              ) : (
+          {/* Email Field with Validation */}
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              Email Address
+            </label>
+            <div className="flex space-x-2">
+              <div className="flex-grow">
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                    errors.email ? 'border-red-500' : isEmailValidated ? 'border-green-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Enter your email"
+                  disabled={isEmailValidated}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleValidateEmail}
+                disabled={isEmailValidating || isEmailValidated}
+                className={`px-4 py-2 rounded-md text-white font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  isEmailValidated
+                    ? 'bg-green-500 hover:bg-green-600'
+                    : 'bg-blue-500 hover:bg-blue-600'
+                }`}
+              >
+                {isEmailValidating ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : isEmailValidated ? (
+                  <Check className="h-5 w-5" />
+                ) : (
+                  'Validate'
+                )}
+              </button>
+            </div>
+            
+            {emailValidationMessage && (
+              <p className={`mt-1 text-sm flex items-center ${
+                isEmailValidated ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {isEmailValidated ? (
+                  <Check className="h-4 w-4 mr-1" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                )}
+                {emailValidationMessage}
+              </p>
+            )}
+            
+            {errors.email && !emailValidationMessage && (
+              <p className="mt-1 text-sm text-red-600 flex items-center">
                 <AlertCircle className="h-4 w-4 mr-1" />
-              )}
-              {emailValidationMessage}
-            </p>
-          )}
-          
-          {errors.email && !emailValidationMessage && (
-            <p className="mt-1 text-sm text-red-600 flex items-center">
-              <AlertCircle className="h-4 w-4 mr-1" />
-              {errors.email}
-            </p>
-          )}
+                {errors.email}
+              </p>
+            )}
+          </div>
         </div>
         
         {/* Submit Button */}
@@ -519,6 +678,7 @@ const RegistrationForm: React.FC = () => {
                       </div>
                       <p>User ID: {registrationStatus.user.codUser}</p>
                       <p>Name: {registrationStatus.user.nombre} {registrationStatus.user.apellido}</p>
+                      <p>Location: {getFullLocationPath(registrationStatus.user.codUbica)}</p>
                       <p>Registration Date: {registrationStatus.user.fechaRegistro}</p>
                     </div>
                   </div>

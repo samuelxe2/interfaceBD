@@ -1,26 +1,6 @@
 import jsPDF from 'jspdf';
 import { User } from '../types';
-
-// Helper function to get location name
-const getLocationName = (codUbica: string): string => {
-  const locationMap: { [key: string]: string } = {
-    // Countries
-    '57': 'Colombia',
-    '1': 'United States',
-    '34': 'Spain',
-    '54': 'Argentina',
-    // Departments/States
-    '05': 'Antioquia',
-    '81': 'Arauca',
-    '11': 'Bogotá D.C.',
-    '15': 'Boyacá',
-    '25': 'Cundinamarca',
-    '205': 'Alabama',
-    '907': 'Alaska',
-    '209': 'California'
-  };
-  return locationMap[codUbica] || 'Unknown Location';
-};
+import { getFullLocationPath } from '../services/api';
 
 export const generateRegistrationPDF = async (user: User): Promise<string> => {
   try {
@@ -49,11 +29,11 @@ export const generateRegistrationPDF = async (user: User): Promise<string> => {
     let currentY = yStart;
     
     // User details
-    doc.setFont(undefined, 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text('User Information:', 20, currentY);
     currentY += lineHeight;
     
-    doc.setFont(undefined, 'normal');
+    doc.setFont('helvetica', 'normal');
     doc.text(`User Code: ${user.codUser}`, 30, currentY);
     currentY += lineHeight;
     
@@ -70,26 +50,44 @@ export const generateRegistrationPDF = async (user: User): Promise<string> => {
     doc.text(`Phone: ${user.celular}`, 30, currentY);
     currentY += lineHeight;
     
-    doc.text(`Location: ${getLocationName(user.codUbica)}`, 30, currentY);
+    // Enhanced location display with full path
+    const locationPath = getFullLocationPath(user.codUbica);
+    doc.text(`Location: ${locationPath}`, 30, currentY);
     currentY += lineHeight;
     
     doc.text(`Registration Date: ${user.fechaRegistro}`, 30, currentY);
     currentY += lineHeight * 2;
     
     // Status
-    doc.setFont(undefined, 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.setTextColor(34, 197, 94); // Green color
     doc.text('✓ Email Validated', 30, currentY);
     currentY += lineHeight;
     
     doc.setTextColor(34, 197, 94);
     doc.text('✓ Registration Complete', 30, currentY);
+    currentY += lineHeight;
+    
+    doc.setTextColor(34, 197, 94);
+    doc.text('✓ Location Verified', 30, currentY);
     currentY += lineHeight * 2;
+    
+    // Location Details Section with descTipoUbica format
+    doc.setFontSize(10);
+    doc.setTextColor(107, 114, 128);
+    doc.text('Location Hierarchy (descTipoUbica Format):', 20, currentY);
+    currentY += 8;
+    doc.text(`Complete Address: ${locationPath}`, 30, currentY);
+    currentY += 8;
+    doc.text(`Location Code: ${user.codUbica}`, 30, currentY);
+    currentY += 8;
+    doc.text('Location Types: País > Departamento/Provincia > Ciudad > Area', 30, currentY);
+    currentY += lineHeight;
     
     // Footer
     doc.setFontSize(10);
     doc.setTextColor(107, 114, 128);
-    doc.text('This document certifies the successful registration of the user.', 20, currentY);
+    doc.text('This document certifies the successful registration with complete location hierarchy.', 20, currentY);
     currentY += 10;
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, currentY);
     
